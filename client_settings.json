@@ -1,0 +1,16 @@
+{
+  "theme": "red",
+  "font": "Comic Sans MS",
+  "font_size": 12,
+  "text_color": "#ff8fab",
+  "name": "andrew",
+  "geometry": [
+    940,
+    620,
+    810,
+    410
+  ],
+  "offline_mode": true,
+  "server_addr": "172.86.68.225:26327",
+  "last_tab": "cheats"
+}

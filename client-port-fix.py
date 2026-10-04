@@ -2,6 +2,9 @@ import asyncio
 import queue
 import threading
 import socket
+import sys
+import ctypes
+from ctypes import wintypes
 import websockets
 import customtkinter as ctk
 from tkinter import messagebox
@@ -10,12 +13,43 @@ import traceback
 
 ctk.set_appearance_mode("Dark")
 
+class EmojiMenu(ctk.CTkToplevel):
+    def __init__(self,master,entry_widget, **kwargs):
+        super().__init__(master,**kwargs)
+        self.entry_widget = entry_widget
+
+        self.title("Emoji Menu")
+        self.geometry("240x160")
+        self.configure(fg_color="#2c2c2e")
+        self.emojis = [
+            "😀", "😂", "😊", "🥰", "😍", "😎", "😜", "🥳",
+            "👍️", "👎️", "❤️", "🔥", "🎉", "✨", "💩", "👀",
+            "🚀", "💡", "💬", "👋", "😭", "😡", "😱", "🤔"
+        ]
+        for i, emoji in enumerate(self.emojis):
+            row = i // 6
+            col = i % 6
+            btn = ctk.CTkButton(
+                self, text=emoji, width=35, height=35,
+                fg_color="transparent", hover_color="#3a3a3c",
+                font=("Segoe UI", 16),
+                command=lambda e=emoji: self.insert_emoji(e)
+            )
+            btn.grid(row=row, column=col, padx=2, pady=2)
+        self.bind("<FocusOut>", lambda e: self.destroy())
+        self.focus_set()
+    def insert_emoji(self,emoji):
+        current_position = self.entry_widget.index(ctk.INSERT )
+        self.entry_widget.insert(current_position,emoji)
+        self.entry_widget.focus_set()
+
+
 
 class ChatApp(ctk.CTk):
     def __init__(self):
         super().__init__()
         self.title("✨ Мессенджер")
-        self.geometry("540x680")
+        self.geometry("800x680")
         self.minsize(420, 550)
         self.configure(fg_color="#1c1c1e")
 
@@ -23,6 +57,9 @@ class ChatApp(ctk.CTk):
         self.ws = None
         self.running = True
         self.message_queue = queue.Queue()
+        self.emoji_window = 0
+
+
 
         # Асинхронный цикл в отдельном потоке
         self.loop = asyncio.new_event_loop()
@@ -126,29 +163,14 @@ class ChatApp(ctk.CTk):
         self.status_label.configure(text="Подключение...", text_color="#ffcc00")
         self.connect_btn.configure(state="disabled")
 
-        # Запускаем асинхронное подключение
         asyncio.run_coroutine_threadsafe(self.start_client(), self.loop)
 
     async def start_client(self):
         try:
-            # Попробуем проверить, открыт ли порт (быстрая проверка)
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.settimeout(1)
-            result = sock.connect_ex(("127.0.0.1", 29548))
-            sock.close()
-            if result != 0:
-                self.after(0, lambda: self.status_label.configure(
-                    text="❌ Сервер не доступен (порт 29548 закрыт)", text_color="#ff4444"))
-                self.after(0, lambda: self.connect_btn.configure(state="normal"))
-                return
+            self.ws = await websockets.connect("ws://172.86.68.225:29548")
+            await self.ws.send(self.alias)
 
-            self.ws = await websockets.connect("ws://127.0.0.1:29548")
-            await self.ws.send(self.alias)  # отправляем псевдоним
-
-            # Переключаем интерфейс в главном потоке
             self.after(0, self.switch_to_chat)
-
-            # Запускаем приём сообщений
             await self.receive_messages()
 
         except Exception as e:
@@ -159,7 +181,6 @@ class ChatApp(ctk.CTk):
             if self.ws:
                 await self.ws.close()
                 self.ws = None
-            # Выводим полную ошибку в консоль для диагностики
             print("Ошибка подключения:", error_text)
 
     def switch_to_chat(self):
@@ -190,14 +211,11 @@ class ChatApp(ctk.CTk):
         try:
             while True:
                 msg = self.message_queue.get_nowait()
-                # Если сообщение начинается с нашего алиаса + ":" – это эхо, пропускаем
                 if msg.startswith(self.alias + ":"):
                     continue
                 elif ":" in msg:
-                    # Сообщение от другого участника
                     self.add_message("", msg, is_mine=False, is_system=False)
                 else:
-                    # Системное сообщение (присоединился / покинул)
                     self.add_message("", msg, is_system=True)
         except queue.Empty:
             pass
@@ -229,7 +247,6 @@ class ChatApp(ctk.CTk):
         full_display = f"{self.alias} [{timestamp}]: {text}"
         self.add_message("", full_display, is_mine=True)
 
-        # Отправляем серверу только текст (алиас добавит сервер)
         asyncio.run_coroutine_threadsafe(self.ws.send(text), self.loop)
         self.msg_entry.delete(0, "end")
 
